@@ -14,7 +14,7 @@
         <Button Content="Save as..." Click="SaveAsClicked" />
     </StackPanel>
 
-    <TabControl>
+    <TabControl Name="MainTabs">
         <TabItem Header="Files">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
@@ -30,6 +30,7 @@
                             <TextBlock Text="Remove" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
+                    <Button Content="Create Scene..." Click="CreateSceneClicked" />
                     <Button Click="PlayFileClicked">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <PathIcon Data="{StaticResource PlayIcon}" Foreground="#1565C0" Width="16" Height="16" />
@@ -39,7 +40,7 @@
                     <ComboBox Name="FileOutput" Width="220" PlaceholderText="Play on..." />
                 </StackPanel>
                 <DataGrid Name="FilesGrid" Margin="8" AutoGenerateColumns="False" CanUserReorderColumns="True"
-                          CanUserResizeColumns="True" SelectionMode="Single" CellEditEnded="FilesGridCellEditEnded">
+                          CanUserResizeColumns="True" SelectionMode="Extended" CellEditEnded="FilesGridCellEditEnded">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Short name" Width="180" Binding="{Binding ShortName}" />
                         <DataGridTextColumn Header="Full file path" Width="*" Binding="{Binding Path}" IsReadOnly="True" />
@@ -84,7 +85,7 @@
             </DockPanel>
         </TabItem>
 
-        <TabItem Header="Scenes">
+        <TabItem Name="ScenesTab" Header="Scenes">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
                     <Button Click="AddSceneClicked">
@@ -125,7 +126,7 @@
             </DockPanel>
         </TabItem>
 
-        <TabItem Header="Show">
+        <TabItem Name="ShowTab" Header="Show">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
                     <Button Click="AddToShowClicked">

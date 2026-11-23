@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:CompileBindings="False"
+        x:Class="AuSoCom.Controls.SceneCreationDialog"
+        Title="Create Scene"
+        Width="380"
+        Height="250"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+    <Grid Margin="16" RowDefinitions="*,Auto">
+        <StackPanel Grid.Row="0" Spacing="12">
+            <TextBlock Text="Create scenes from the selected files" FontWeight="Bold" />
+            <RadioButton Name="OneSceneRadioButton"
+                         GroupName="SceneCreationMode"
+                         Content="One scene with all files"
+                         IsChecked="True" />
+            <RadioButton Name="EachFileRadioButton"
+                         GroupName="SceneCreationMode"
+                         Content="Each file in its own scene" />
+            <CheckBox Name="AutoStartScenesCheckBox"
+                      Content="Auto-start scenes"
+                      IsChecked="True" />
+            <CheckBox Name="AppendToShowCheckBox" Content="Append new scenes to show" />
+        </StackPanel>
+        <StackPanel Grid.Row="1"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="8">
+            <Button Content="OK"
+                    Width="90"
+                    HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center"
+                    IsDefault="True"
+                    Click="ConfirmClicked" />
+            <Button Content="Cancel"
+                    Width="90"
+                    HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center"
+                    Click="CancelClicked" />
+        </StackPanel>
+    </Grid>
+</Window>

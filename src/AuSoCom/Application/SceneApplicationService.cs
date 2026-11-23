@@ -15,13 +15,27 @@ public sealed class SceneApplicationService
                 .Select(device => device.Id)
                 .Distinct()
                 .ToList(),
-            OutputIds = autoAddedDevices
-                .Where(device => device.Role is DeviceRole.OutputStereo or DeviceRole.OutputLeft or DeviceRole.OutputRight)
-                .Select(device => device.Id)
-                .Distinct()
-                .ToList()
+            OutputIds = GetAutoAddedOutputIds(autoAddedDevices)
         };
     }
+
+    public Scene CreateSceneForFiles(string shortName, IEnumerable<Device> devices, IReadOnlyList<MediaFile> files)
+    {
+        var autoAddedDevices = devices.Where(device => device.AutoAdd).ToArray();
+        return new Scene
+        {
+            ShortName = shortName,
+            InputIds = files.Select(file => file.Id).Distinct().ToList(),
+            OutputIds = GetAutoAddedOutputIds(autoAddedDevices)
+        };
+    }
+
+    private static List<Guid> GetAutoAddedOutputIds(IEnumerable<Device> devices) =>
+        devices
+            .Where(device => device.Role is DeviceRole.OutputStereo or DeviceRole.OutputLeft or DeviceRole.OutputRight)
+            .Select(device => device.Id)
+            .Distinct()
+            .ToList();
 
     public Scene Duplicate(Scene source)
     {

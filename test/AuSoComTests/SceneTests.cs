@@ -21,6 +21,25 @@ public sealed class SceneTests
     }
 
     [TestMethod]
+    public void SceneCreatedForFilesIncludesFilesAndAutoAddedOutputsButNotAutoAddedInputs()
+    {
+        var service = new SceneApplicationService();
+        var autoInput = new Device { Role = DeviceRole.InputStereo, AutoAdd = true };
+        var autoOutput = new Device { Role = DeviceRole.OutputStereo, AutoAdd = true };
+        var firstFile = new MediaFile { ShortName = "First" };
+        var secondFile = new MediaFile { ShortName = "Second" };
+
+        var scene = service.CreateSceneForFiles(
+            "Files scene",
+            [autoInput, autoOutput],
+            [firstFile, secondFile]);
+
+        scene.InputIds.Should().Equal(firstFile.Id, secondFile.Id);
+        scene.InputIds.Should().NotContain(autoInput.Id);
+        scene.OutputIds.Should().Equal(autoOutput.Id);
+    }
+
+    [TestMethod]
     public void DuplicateCreatesASeparateSceneWithCopiesOfRoutingAndMembers()
     {
         var service = new SceneApplicationService();

@@ -127,24 +127,91 @@ public partial class MainWindow : Window
                     new FilePickerFileType("Audio") { Patterns = ["*.mp3", "*.wav", "*.flac", "*.aiff", "*.aif"] }
                 ]
             });
+            var addedFiles = new List<MediaFile>();
             foreach (var file in files)
             {
                 var path = file.TryGetLocalPath();
                 if (path is null) continue;
-                _settings.Files.Add(new MediaFile
+                var mediaFile = new MediaFile
                 {
                     ShortName = Path.GetFileNameWithoutExtension(path),
                     Path = path
-                });
+                };
+                _settings.Files.Add(mediaFile);
+                addedFiles.Add(mediaFile);
             }
             RefreshFiles();
+            if (addedFiles.Count > 0)
+            {
+                var addedFilesSet = addedFiles.ToHashSet();
+                FilesGrid.SelectedItems.Clear();
+                foreach (var item in FilesGrid.ItemsSource!.OfType<MediaFileItem>()
+                             .Where(item => addedFilesSet.Contains(item.File)))
+                    FilesGrid.SelectedItems.Add(item);
+            }
         }
 
         private void RemoveFilesClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
-            if (FilesGrid.SelectedItem is not MediaFileItem item) return;
-            _settings.Files.RemoveAll(file => file.Id == item.File.Id);
+            var selectedFiles = GetSelectedMediaFiles();
+            if (selectedFiles.Length == 0) return;
+
+            var selectedIds = selectedFiles.Select(file => file.Id).ToHashSet();
+            _settings.Files.RemoveAll(file => selectedIds.Contains(file.Id));
+            foreach (var scene in _settings.Scenes)
+            {
+                foreach (var fileId in selectedIds)
+                    _sceneService.RemoveElement(scene, fileId);
+            }
+
             RefreshFiles();
+            RefreshScenes();
+        }
+
+        private async void CreateSceneClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            var files = GetSelectedMediaFiles();
+            if (files.Length == 0)
+            {
+                ShowError("No files selected", "Select one or more files before creating a scene.");
+                return;
+            }
+
+            var dialog = new SceneCreationDialog();
+            var options = await dialog.ShowDialog<SceneCreationOptions>(this);
+            if (options is null) return;
+
+            var scenes = new List<Scene>();
+            if (options.OneSceneForAllFiles)
+            {
+                scenes.Add(_sceneService.CreateSceneForFiles(
+                    $"Scene {_settings.Scenes.Count + 1}",
+                    _settings.Devices,
+                    files));
+            }
+            else
+            {
+                foreach (var file in files)
+                {
+                    scenes.Add(_sceneService.CreateSceneForFiles(
+                        file.ShortName,
+                        _settings.Devices,
+                        [file]));
+                }
+            }
+
+            foreach (var scene in scenes)
+            {
+                scene.AutoStart = options.AutoStartScenes;
+                _settings.Scenes.Add(scene);
+                if (options.AppendToShow)
+                    _settings.Show.Add(scene.Id);
+            }
+
+            RefreshScenes(scenes[^1].Id);
+            if (options.AppendToShow)
+                RefreshShow();
+            MainTabs.SelectedItem = options.AppendToShow ? ShowTab : ScenesTab;
         }
 
         private void PlayFileClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -160,6 +227,13 @@ public partial class MainWindow : Window
                 ShowError("Playback failed", exception.Message);
             }
         }
+
+        private MediaFile[] GetSelectedMediaFiles() =>
+            FilesGrid.SelectedItems
+                .OfType<MediaFileItem>()
+                .Select(item => item.File)
+                .DistinctBy(file => file.Id)
+                .ToArray();
 
         private void RefreshInputsClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => RefreshDevices();
 
