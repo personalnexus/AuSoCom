@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AuSoCom/AuSoCom.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/AuSoComTests/AuSoComTests.csproj" />
+  </Folder>
+</Solution>

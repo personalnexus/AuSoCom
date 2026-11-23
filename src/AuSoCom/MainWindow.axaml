@@ -1,0 +1,195 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:controls="using:AuSoCom.Controls"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:CompileBindings="False"
+        x:Class="AuSoCom.MainWindow"
+        Title="AuSoCom">
+<DockPanel>
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
+        <Button Content="Open..." Click="OpenClicked" />
+        <Button Content="Save" Click="SaveClicked" />
+        <Button Content="Save as..." Click="SaveAsClicked" />
+    </StackPanel>
+
+    <TabControl>
+        <TabItem Header="Files">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
+                    <Button Click="AddFilesClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AddIcon}" Foreground="#2E7D32" Width="16" Height="16" />
+                            <TextBlock Text="Add..." VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="RemoveFilesClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource RemoveIcon}" Foreground="#C62828" Width="16" Height="16" />
+                            <TextBlock Text="Remove" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="PlayFileClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource PlayIcon}" Foreground="#1565C0" Width="16" Height="16" />
+                            <TextBlock Text="Play" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <ComboBox Name="FileOutput" Width="220" PlaceholderText="Play on..." />
+                </StackPanel>
+                <DataGrid Name="FilesGrid" Margin="8" AutoGenerateColumns="False" CanUserReorderColumns="True"
+                          CanUserResizeColumns="True" SelectionMode="Single" CellEditEnded="FilesGridCellEditEnded">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Short name" Width="180" Binding="{Binding ShortName}" />
+                        <DataGridTextColumn Header="Full file path" Width="*" Binding="{Binding Path}" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Start" Width="120" Binding="{Binding StartTime}" />
+                        <DataGridTextColumn Header="End" Width="120" Binding="{Binding EndTime}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Input Devices">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="8">
+                    <Button Content="Refresh" Click="RefreshInputsClicked" />
+                </StackPanel>
+                <DataGrid Name="InputsGrid" Margin="8" AutoGenerateColumns="False" SelectionMode="Single"
+                          CanUserResizeColumns="True" CellEditEnded="InputsGridCellEditEnded">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Short name" Width="220" Binding="{Binding ShortName}" />
+                        <DataGridCheckBoxColumn Header="Favorite" Width="90" Binding="{Binding Favorite}" />
+                        <DataGridCheckBoxColumn Header="Auto-add" Width="90" Binding="{Binding AutoAdd}" />
+                        <DataGridTextColumn Header="Full device name" Width="*" Binding="{Binding SystemName}" IsReadOnly="True" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Output Devices">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="8">
+                    <Button Content="Refresh" Click="RefreshOutputsClicked" />
+                </StackPanel>
+                <DataGrid Name="OutputsGrid" Margin="8" AutoGenerateColumns="False" SelectionMode="Single"
+                          CanUserResizeColumns="True" CellEditEnded="OutputsGridCellEditEnded">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Short name" Width="220" Binding="{Binding ShortName}" />
+                        <DataGridCheckBoxColumn Header="Favorite" Width="90" Binding="{Binding Favorite}" />
+                        <DataGridCheckBoxColumn Header="Auto-add" Width="90" Binding="{Binding AutoAdd}" />
+                        <DataGridTextColumn Header="Full device name" Width="*" Binding="{Binding SystemName}" IsReadOnly="True" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Scenes">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
+                    <Button Click="AddSceneClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AddIcon}" Foreground="#2E7D32" Width="16" Height="16" />
+                            <TextBlock Text="Add..." VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="RemoveSceneClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource RemoveIcon}" Foreground="#C62828" Width="16" Height="16" />
+                            <TextBlock Text="Remove" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Content="Duplicate Scene" Click="DuplicateSceneClicked" />
+                </StackPanel>
+                <Grid ColumnDefinitions="*,4,*" Margin="8">
+                    <DataGrid Name="ScenesGrid" Grid.Column="0" AutoGenerateColumns="False" SelectionMode="Single"
+                              CanUserResizeColumns="True" SelectionChanged="ScenesGridSelectionChanged"
+                              CellEditEnded="ScenesGridCellEditEnded">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Short name" Width="180" Binding="{Binding ShortName}" />
+                            <DataGridTextColumn Header="Inputs" Width="*" Binding="{Binding Inputs}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Outputs" Width="*" Binding="{Binding Outputs}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Fade-in" Width="120" Binding="{Binding FadeIn}" />
+                            <DataGridTextColumn Header="Fade-out" Width="120" Binding="{Binding FadeOut}" />
+                            <DataGridCheckBoxColumn Header="Auto-start" Width="100" Binding="{Binding AutoStart}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <GridSplitter Grid.Column="1" />
+                    <controls:SceneControlsView x:Name="SceneControls" Grid.Column="2" Margin="8"
+                                                AddInputRequested="AddInputToSceneClicked"
+                                                RemoveInputRequested="RemoveInputFromSceneClicked"
+                                                AddOutputRequested="AddOutputToSceneClicked"
+                                                RemoveOutputRequested="RemoveOutputFromSceneClicked"
+                                                RoutingCellEditEnded="RoutingGridCellEditEnded" />
+                </Grid>
+            </DockPanel>
+        </TabItem>
+
+        <TabItem Header="Show">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="8">
+                    <Button Click="AddToShowClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource AddIcon}" Foreground="#2E7D32" Width="16" Height="16" />
+                            <TextBlock Text="Add..." VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="RemoveFromShowClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource RemoveIcon}" Foreground="#C62828" Width="16" Height="16" />
+                            <TextBlock Text="Remove" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="MoveShowUpClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource MoveUpIcon}" Foreground="#EF6C00" Width="16" Height="16" />
+                            <TextBlock Text="Move up" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="MoveShowDownClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource MoveDownIcon}" Foreground="#EF6C00" Width="16" Height="16" />
+                            <TextBlock Text="Move down" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="BackClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource BackIcon}" Foreground="#111111" Width="16" Height="16" />
+                            <TextBlock Text="Back" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="StartClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource PlayIcon}" Foreground="#1565C0" Width="16" Height="16" />
+                            <TextBlock Text="Start" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="NextClicked">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="{StaticResource NextIcon}" Foreground="#111111" Width="16" Height="16" />
+                            <TextBlock Text="Next" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+                <Grid ColumnDefinitions="420,4,*" Margin="8">
+                    <DataGrid Name="ShowGrid" Grid.Column="0" AutoGenerateColumns="False" SelectionMode="Single"
+                              CanUserResizeColumns="True" SelectionChanged="ShowGridSelectionChanged">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Status" Width="65" Binding="{Binding Status}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Position" Width="75" Binding="{Binding Position}" IsReadOnly="True" />
+                            <DataGridTextColumn Header="Scene" Width="*" Binding="{Binding SceneName}" IsReadOnly="True" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <GridSplitter Grid.Column="1" />
+                    <controls:SceneControlsView x:Name="ShowSceneControls" Grid.Column="2" Margin="8"
+                                                AddInputRequested="AddInputToSceneClicked"
+                                                RemoveInputRequested="RemoveInputFromSceneClicked"
+                                                AddOutputRequested="AddOutputToSceneClicked"
+                                                RemoveOutputRequested="RemoveOutputFromSceneClicked"
+                                                RoutingCellEditEnded="RoutingGridCellEditEnded" />
+                </Grid>
+            </DockPanel>
+        </TabItem>
+    </TabControl>
+</DockPanel>
+</Window>

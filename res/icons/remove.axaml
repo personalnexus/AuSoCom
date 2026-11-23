@@ -1,0 +1,4 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StreamGeometry x:Key="RemoveIcon">M 1,7 L 15,7 L 15,9 L 1,9 Z</StreamGeometry>
+</ResourceDictionary>

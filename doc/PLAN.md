@@ -1,5 +1,26 @@
 # AuSoCom - Aula Sound Commander
 
+## Implementation Decisions
+
+- The desktop UI is implemented with Avalonia so the same application can run on Windows and macOS.
+- The initial implementation targets Windows. The application model and audio facade remain platform-neutral, with ASIO support on Windows.
+- NAudio is hidden behind a platform-independent audio facade. A Windows NAudio/ASIO implementation is required for real playback and routing. macOS support will initially preserve the facade and UI structure, but native output is a separate follow-up if CoreAudio integration is not available in NAudio.
+- The application is packaged and published as a self-contained single executable for each supported runtime identifier.
+- The implementation follows vertical slices: settings and domain model, device discovery and playback facade, scene routing, show navigation, persistence, and then the Avalonia views.
+- The source plan and documentation live in `doc/`; source code lives in `src/AuSoCom`; tests live in `test/AuSoComTests`.
+
+## Implementation Checklist
+
+1. Install .NET 10 and create the Avalonia application and MSTest solution structure.
+2. Define application-domain entities and JSON persistence with GUID identities.
+3. Define the audio facade and implement Windows device discovery and MP3 playback through NAudio/ASIO.
+4. Implement scene routing, volume, mute, fade, delay, and show navigation use cases.
+5. Build the Avalonia main window, tab content, show controls, scene controls, and modal add/remove selectors.
+6. Persist window/tab layout and support open/save/save-as and command-line settings-file loading.
+7. Add high-level use-case tests and small technical tests for routing and timing calculations.
+8. Publish win-x64 and win-arm64 single-file, self-contained executables.
+9. Verify macOS compilation and record the remaining native audio integration requirements.
+
 ## Application Elements
 
 Each element has a GUID that is used to reference it in the application and its JSON settings, even when the short name changes
