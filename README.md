@@ -4,7 +4,7 @@ AuSoCom (Aula Sound Commander) is a desktop application for organizing audio fil
 
 ## Application Menu
 
-- **Open...** — opens AuSoCom show files and provides a dropdown of recently opened or saved show files. The recent-file list is stored in `AuSoCom.appsettings.json` beside the executable.
+- **Open...** — opens AuSoCom show files and provides a drop-down of recently opened or saved show files. The recent-file list is stored in `AuSoCom.appsettings.json` beside the executable.
 
 - **Save** — saves the show into the current file, or into a new file (like save as) when there is no current file.
 
@@ -13,7 +13,7 @@ AuSoCom (Aula Sound Commander) is a desktop application for organizing audio fil
 
 ## Tabs
 
-- **Files** — Add audio files, edit their short names and playback start/end times. Selecting one file opens the preview player, where you can play, pause, stop, seek, and set its start or end time at the current position.
+- **Input Files** — Add audio files, edit their short names and playback start/end times. Selecting one file opens the preview player, where you can play, pause, stop, seek, and set its start or end time at the current position.
 
 - **Input Devices** — View and rename discovered input devices. Mark devices as favorites, so they appear at the top of the device list or have them automatically included in new scenes.
 
