@@ -1,10 +1,14 @@
     using Avalonia.Controls;
+    using Avalonia.Controls.Primitives;
+    using Avalonia.Input;
     using Avalonia.Platform.Storage;
+    using Avalonia.Threading;
     using AuSoCom.Application;
     using AuSoCom.Audio;
     using AuSoCom.Controls;
     using AuSoCom.Domain;
     using AuSoCom.Settings;
+    using System.ComponentModel;
     using System.Linq;
 
 namespace AuSoCom;
@@ -12,9 +16,20 @@ namespace AuSoCom;
 public partial class MainWindow : Window
 {
         private readonly SettingsStore _settingsStore = new();
+        private readonly ApplicationSettingsStore _applicationSettingsStore = new();
+        private readonly ApplicationSettingsDocument _applicationSettings = new();
         private readonly SceneApplicationService _sceneService = new();
         private readonly IAudioEngine _audio = new NAudioEngine();
         private readonly SettingsDocument _settings = new();
+        private readonly DispatcherTimer _filePlayerTimer = new()
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        private MediaFileItem? _selectedPreviewItem;
+        private TimeSpan _selectedFileDuration;
+        private TimeSpan _filePlayerPosition;
+        private bool _isUpdatingFilePlayer;
+        private bool _isFileProgressSeeking;
         private string? _settingsPath;
         private Guid? _activeSceneId;
 
@@ -25,7 +40,21 @@ public partial class MainWindow : Window
         public MainWindow(IReadOnlyList<string>? args = null)
     {
         InitializeComponent();
-        Closed += (_, _) => _audio.Dispose();
+        _filePlayerTimer.Tick += FilePlayerTimerTick;
+        Closed += (_, _) =>
+        {
+            _filePlayerTimer.Stop();
+            _audio.Dispose();
+        };
+            try
+            {
+                _applicationSettings.RecentFiles.AddRange(_applicationSettingsStore.Load().RecentFiles);
+            }
+            catch (Exception exception)
+            {
+                ShowError("Application settings load failed", exception.Message);
+            }
+            RefreshRecentFilesMenu();
             if (args is { Count: > 0 } &&
                 File.Exists(args[0]))
             {
@@ -67,6 +96,7 @@ public partial class MainWindow : Window
                 _settingsPath = path;
                 Title = $"AuSoCom - {Path.GetFileName(path)}";
                 RefreshAllLists();
+                RecordRecentFile(path);
             }
             catch (Exception exception)
             {
@@ -98,7 +128,6 @@ public partial class MainWindow : Window
             var path = file?.TryGetLocalPath();
             if (path is not null)
             {
-                _settingsPath = path;
                 SaveSettings(path);
             }
         }
@@ -108,12 +137,52 @@ public partial class MainWindow : Window
             try
             {
                 _settingsStore.Save(path, _settings);
+                _settingsPath = path;
                 Title = $"AuSoCom - {Path.GetFileName(path)}";
+                RecordRecentFile(path);
             }
             catch (Exception exception)
             {
                 ShowError("Save failed", exception.Message);
             }
+        }
+
+        private void RecordRecentFile(string path)
+        {
+            _applicationSettings.AddRecentFile(path);
+            RefreshRecentFilesMenu();
+            try
+            {
+                _applicationSettingsStore.Save(_applicationSettings);
+            }
+            catch (Exception exception)
+            {
+                ShowError("Recent files could not be saved", exception.Message);
+            }
+        }
+
+        private void RefreshRecentFilesMenu()
+        {
+            var flyout = new MenuFlyout();
+            if (_applicationSettings.RecentFiles.Count == 0)
+            {
+                flyout.Items.Add(new MenuItem { Header = "No recent files", IsEnabled = false });
+            }
+            else
+            {
+                foreach (var path in _applicationSettings.RecentFiles)
+                {
+                    var item = new MenuItem
+                    {
+                        Header = $"{Path.GetFileName(path)} ({Path.GetDirectoryName(path)})"
+                    };
+                    ToolTip.SetTip(item, path);
+                    item.Click += (_, _) => OpenSettings(path);
+                    flyout.Items.Add(item);
+                }
+            }
+
+            OpenButton.Flyout = flyout;
         }
 
         private async void AddFilesClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -214,18 +283,215 @@ public partial class MainWindow : Window
             MainTabs.SelectedItem = options.AppendToShow ? ShowTab : ScenesTab;
         }
 
-        private void PlayFileClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        private void FilesGridSelectionChanged(object? sender, SelectionChangedEventArgs e)
         {
-            if (FilesGrid.SelectedItem is not MediaFileItem item) return;
-            var output = FileOutput.SelectedItem as string;
+            var selectedItems = FilesGrid.SelectedItems.OfType<MediaFileItem>().ToArray();
+            if (selectedItems.Length != 1)
+            {
+                _filePlayerTimer.Stop();
+                _selectedPreviewItem = null;
+                _selectedFileDuration = TimeSpan.Zero;
+                _filePlayerPosition = TimeSpan.Zero;
+                _isFileProgressSeeking = false;
+                FilePlayerPanel.IsVisible = false;
+                StopFilePreview();
+                return;
+            }
+
+            var item = selectedItems[0];
+            if (_selectedPreviewItem?.File.Id == item.File.Id)
+            {
+                _selectedPreviewItem = item;
+                return;
+            }
+
+            StopFilePreview();
+            _selectedPreviewItem = item;
+            FilePlayerPanel.IsVisible = true;
+            _filePlayerTimer.Start();
             try
             {
-                _audio.Play(item.File, output);
+                _selectedFileDuration = _audio.GetFileDuration(item.File);
+            }
+            catch (Exception exception)
+            {
+                _selectedFileDuration = TimeSpan.Zero;
+                ShowError("File playback failed", exception.Message);
+            }
+
+            _filePlayerPosition = ClampFilePosition(item.File.StartTime ?? TimeSpan.Zero, _selectedFileDuration);
+            FilePlayerTotalTime.Text = FormatPlayerTime(_selectedFileDuration);
+            FilePlayerProgress.IsEnabled = _selectedFileDuration > TimeSpan.Zero;
+            UpdateFilePlayerDisplay();
+        }
+
+        private void PlayFileClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_selectedPreviewItem is null) return;
+
+            try
+            {
+                if (_audio.IsFilePlaybackPaused)
+                {
+                    _audio.ResumeFilePlayback();
+                    return;
+                }
+
+                var file = _selectedPreviewItem.File;
+                var position = GetCurrentFilePosition();
+                var start = file.StartTime ?? TimeSpan.Zero;
+                var end = file.EndTime ?? _selectedFileDuration;
+                if (position >= end && end > start)
+                    position = ClampFilePosition(start, _selectedFileDuration);
+
+                _audio.Play(new MediaFile
+                {
+                    Path = file.Path,
+                    StartTime = position,
+                    EndTime = file.EndTime
+                });
+                _filePlayerPosition = _audio.GetFilePlaybackPosition() ?? position;
+                UpdateFilePlayerDisplay();
             }
             catch (Exception exception)
             {
                 ShowError("Playback failed", exception.Message);
             }
+        }
+
+        private void PauseFileClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            try
+            {
+                _audio.PauseFilePlayback();
+            }
+            catch (Exception exception)
+            {
+                ShowError("Playback pause failed", exception.Message);
+            }
+        }
+
+        private void StopFileClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_selectedPreviewItem is null) return;
+            StopFilePreview();
+            _filePlayerPosition = ClampFilePosition(
+                _selectedPreviewItem.File.StartTime ?? TimeSpan.Zero,
+                _selectedFileDuration);
+            UpdateFilePlayerDisplay();
+        }
+
+        private void SetFileStartHereClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_selectedPreviewItem is null) return;
+            var position = GetCurrentFilePosition();
+            if (_selectedPreviewItem.File.EndTime is { } end && position >= end)
+            {
+                ShowError("Invalid start time", "The start time must be earlier than the end time.");
+                return;
+            }
+
+            _selectedPreviewItem.SetStartTime(position);
+        }
+
+        private void SetFileEndHereClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_selectedPreviewItem is null) return;
+            var position = GetCurrentFilePosition();
+            if (position <= (_selectedPreviewItem.File.StartTime ?? TimeSpan.Zero))
+            {
+                ShowError("Invalid end time", "The end time must be after the start time.");
+                return;
+            }
+
+            _selectedPreviewItem.SetEndTime(position);
+            StopFilePreview();
+        }
+
+        private void FilePlayerProgressChanged(object? sender, RangeBaseValueChangedEventArgs e)
+        {
+            if (_isUpdatingFilePlayer || _selectedPreviewItem is null) return;
+            _filePlayerPosition = ClampFilePosition(
+                TimeSpan.FromMilliseconds(e.NewValue),
+                _selectedFileDuration);
+            FilePlayerCurrentTime.Text = FormatPlayerTime(_filePlayerPosition);
+            if (!_isFileProgressSeeking)
+                SeekFilePreview();
+        }
+
+        private void FilePlayerProgressPointerPressed(object? sender, PointerPressedEventArgs e) =>
+            _isFileProgressSeeking = true;
+
+        private void FilePlayerProgressPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            _isFileProgressSeeking = false;
+            SeekFilePreview();
+        }
+
+        private void FilePlayerTimerTick(object? sender, EventArgs e)
+        {
+            if (_selectedPreviewItem is null) return;
+            if (!_isFileProgressSeeking)
+                _filePlayerPosition = GetCurrentFilePosition();
+            UpdateFilePlayerDisplay(updateSlider: !_isFileProgressSeeking);
+        }
+
+        private void SeekFilePreview()
+        {
+            try
+            {
+                _audio.SeekFilePlayback(_filePlayerPosition);
+            }
+            catch (Exception exception)
+            {
+                ShowError("Seek failed", exception.Message);
+            }
+        }
+
+        private void StopFilePreview()
+        {
+            try
+            {
+                _audio.StopFilePlayback();
+            }
+            catch (Exception exception)
+            {
+                ShowError("Playback stop failed", exception.Message);
+            }
+        }
+
+        private TimeSpan GetCurrentFilePosition()
+        {
+            if (_audio.GetFilePlaybackPosition() is { } position)
+                _filePlayerPosition = ClampFilePosition(position, _selectedFileDuration);
+            return _filePlayerPosition;
+        }
+
+        private void UpdateFilePlayerDisplay(bool updateSlider = true)
+        {
+            FilePlayerCurrentTime.Text = FormatPlayerTime(_filePlayerPosition);
+            FilePlayerTotalTime.Text = FormatPlayerTime(_selectedFileDuration);
+            if (!updateSlider) return;
+
+            _isUpdatingFilePlayer = true;
+            var maximum = Math.Max(1, _selectedFileDuration.TotalMilliseconds);
+            FilePlayerProgress.Maximum = maximum;
+            FilePlayerProgress.Value = Math.Clamp(_filePlayerPosition.TotalMilliseconds, 0, maximum);
+            FilePlayerProgress.IsEnabled = _selectedFileDuration > TimeSpan.Zero;
+            _isUpdatingFilePlayer = false;
+        }
+
+        private static TimeSpan ClampFilePosition(TimeSpan position, TimeSpan duration) =>
+            position < TimeSpan.Zero
+                ? TimeSpan.Zero
+                : position > duration ? duration : position;
+
+        private static string FormatPlayerTime(TimeSpan value)
+        {
+            var hours = (int)value.TotalHours;
+            return hours > 0
+                ? $"{hours:00}:{value.Minutes:00}:{value.Seconds:00}.{value.Milliseconds:000}"
+                : $"{(int)value.TotalMinutes:00}:{value.Seconds:00}.{value.Milliseconds:000}";
         }
 
         private MediaFile[] GetSelectedMediaFiles() =>
@@ -350,6 +616,7 @@ public partial class MainWindow : Window
 
         private async void BackClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
+            if (_settings.Show.CurrentSceneIndex == 0) return;
             if (!await StopActiveSceneAsync()) return;
             _settings.Show.Back();
             StartSelectedSceneIfAutomatic();
@@ -369,10 +636,18 @@ public partial class MainWindow : Window
 
         private async void NextClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
         {
+            if (_settings.Show.CurrentSceneIndex is { } currentIndex &&
+                currentIndex >= _settings.Show.SceneIds.Count - 1)
+                return;
             if (!await StopActiveSceneAsync()) return;
             _settings.Show.Next();
             StartSelectedSceneIfAutomatic();
             RefreshShow(selectActive: true);
+        }
+
+        private async void StopClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            await StopActiveSceneAsync();
         }
 
         private void StartSelectedSceneIfAutomatic()
@@ -414,11 +689,10 @@ public partial class MainWindow : Window
 
         private async Task<bool> StopActiveSceneAsync()
         {
-            if (_activeSceneId is not { } activeSceneId) return true;
-            var scene = _settings.Scenes.FirstOrDefault(candidate => candidate.Id == activeSceneId);
+            if (_activeSceneId is null) return true;
             try
             {
-                await _audio.StopAsync(scene?.FadeOut);
+                await _audio.StopAsync();
             }
             catch (Exception exception)
             {
@@ -470,15 +744,11 @@ public partial class MainWindow : Window
         private void OutputsGridCellEditEnded(object? sender, DataGridCellEditEndedEventArgs e)
         {
             RefreshScenes();
-            RefreshFileOutputChoices();
         }
 
         private void ScenesGridCellEditEnded(object? sender, DataGridCellEditEndedEventArgs e)
         {
-            var error = (e.Row.DataContext as SceneItem)?.ConsumeInputError();
             RefreshShow();
-            if (error is not null)
-                ShowError("Invalid fade duration", error);
         }
 
         private async void AddInputToSceneClicked(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -574,6 +844,7 @@ public partial class MainWindow : Window
             var search = new TextBox { PlaceholderText = "Search..." };
             var list = new ListBox { SelectionMode = SelectionMode.Multiple };
             var orderedChoices = choices
+                .DistinctBy(choice => choice.Id)
                 .OrderByDescending(choice => choice.IsFavorite)
                 .ThenBy(choice => choice.Label, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray();
@@ -707,29 +978,6 @@ public partial class MainWindow : Window
                 .Where(device => device.Role is DeviceRole.OutputStereo or DeviceRole.OutputLeft or DeviceRole.OutputRight)
                 .Select(device => new DeviceItem(device))
                 .ToArray();
-            RefreshFileOutputChoices();
-        }
-
-        private void RefreshFileOutputChoices()
-        {
-            var selectedOutput = FileOutput.SelectedItem as string;
-            var outputDevices = _settings.Devices
-                .Where(device => device.Role is DeviceRole.OutputStereo or DeviceRole.OutputLeft or DeviceRole.OutputRight);
-            var outputs = outputDevices
-                .Where(device => device.Favorite)
-                .Select(device => device.ShortName)
-                .Concat(outputDevices
-                    .Where(device => !device.Favorite)
-                    .Select(device => device.ShortName));
-            var choices = _audio.GetAsioDrivers()
-                .ToArray();
-            var orderedChoices = outputs
-                .Concat(choices)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-            FileOutput.ItemsSource = orderedChoices;
-            if (selectedOutput is not null && orderedChoices.Contains(selectedOutput, StringComparer.Ordinal))
-                FileOutput.SelectedItem = selectedOutput;
         }
 
         private void RefreshScenes(Guid? selectedSceneId = null)
@@ -776,10 +1024,20 @@ public partial class MainWindow : Window
                 AddVolumeControl(
                     inputPanel,
                     GetInputName(inputId),
+                    GetInputFullName(inputId),
                     scene.GetInputVolume(inputId),
+                    scene.GetInputGainDb(inputId),
                     scene.IsInputMuted(inputId),
                     volume => scene.SetInputVolume(inputId, volume),
-                    isMuted => scene.SetInputMuted(inputId, isMuted));
+                    gainDb => scene.SetInputGainDb(inputId, gainDb),
+                    isMuted => scene.SetInputMuted(inputId, isMuted),
+                    new InputTimingControls(
+                        scene.GetInputDelay(inputId),
+                        scene.GetInputFadeIn(inputId),
+                        scene.GetInputFadeOut(inputId),
+                        delay => scene.SetInputDelay(inputId, delay),
+                        fadeIn => scene.SetInputFadeIn(inputId, fadeIn),
+                        fadeOut => scene.SetInputFadeOut(inputId, fadeOut)));
             }
 
             foreach (var outputId in scene.OutputIds)
@@ -787,9 +1045,12 @@ public partial class MainWindow : Window
                 AddVolumeControl(
                     outputPanel,
                     GetOutputName(outputId),
+                    GetOutputFullName(outputId),
                     scene.GetOutputVolume(outputId),
+                    scene.GetOutputGainDb(outputId),
                     scene.IsOutputMuted(outputId),
                     volume => scene.SetOutputVolume(outputId, volume),
+                    gainDb => scene.SetOutputGainDb(outputId, gainDb),
                     isMuted => scene.SetOutputMuted(outputId, isMuted));
             }
 
@@ -806,23 +1067,104 @@ public partial class MainWindow : Window
             _settings.Devices.FirstOrDefault(device => device.Id == inputId)?.ShortName ??
             "Unknown input";
 
+        private string GetInputFullName(Guid inputId) =>
+            _settings.Files.FirstOrDefault(file => file.Id == inputId)?.Path ??
+            _settings.Devices.FirstOrDefault(device => device.Id == inputId)?.SystemName ??
+            "Unknown input";
+
         private string GetOutputName(Guid outputId) =>
             _settings.Devices.FirstOrDefault(device => device.Id == outputId)?.ShortName ??
             "Unknown output";
 
-        private static void AddVolumeControl(
+        private string GetOutputFullName(Guid outputId) =>
+            _settings.Devices.FirstOrDefault(device => device.Id == outputId)?.SystemName ??
+            "Unknown output";
+
+        private void AddVolumeControl(
             StackPanel panel,
             string name,
+            string fullName,
             double volume,
+            double gainDb,
             bool isMuted,
             Action<double> setVolume,
-            Action<bool> setMuted)
+            Action<double> setGainDb,
+            Action<bool> setMuted,
+            InputTimingControls? timing = null)
         {
+            var muteRed = new Avalonia.Media.SolidColorBrush(
+                Avalonia.Media.Color.Parse("#C62828"));
             var muteButton = new Button
             {
-                Content = isMuted ? "Muted" : "Mute",
-                MinWidth = 72
+                Content = "Mute",
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                MinWidth = 72,
+                BorderThickness = new Avalonia.Thickness(2)
             };
+            UpdateMuteButtonAppearance(isMuted);
+
+            var gainEncoder = new RotaryGainControl
+            {
+                Value = gainDb,
+                Width = 48,
+                Height = 48
+            };
+            var gainText = new TextBox
+            {
+                Text = FormatGainDb(gainDb),
+                Width = 80,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                TextAlignment = Avalonia.Media.TextAlignment.Center
+            };
+            var lastValidGain = gainDb;
+            gainEncoder.ValueChanged += value =>
+            {
+                setGainDb(value);
+                lastValidGain = value;
+                gainText.Text = FormatGainDb(value);
+            };
+
+            void CommitGain()
+            {
+                if (TryParseGainDb(gainText.Text, out var value))
+                {
+                    gainEncoder.Value = value;
+                    setGainDb(value);
+                    lastValidGain = value;
+                    gainText.Text = FormatGainDb(value);
+                }
+                else
+                {
+                    gainText.Text = FormatGainDb(lastValidGain);
+                    ShowError("Invalid gain", "Enter a gain between -50 and +50 dB.");
+                }
+            }
+
+            gainText.LostFocus += (_, _) => CommitGain();
+            gainText.KeyDown += (_, args) =>
+            {
+                if (args.Key != Avalonia.Input.Key.Enter)
+                    return;
+
+                CommitGain();
+                args.Handled = true;
+            };
+
+            void UpdateMuteButtonAppearance(bool muted)
+            {
+                if (muted)
+                {
+                    muteButton.Background = muteRed;
+                    muteButton.Foreground = Avalonia.Media.Brushes.White;
+                    muteButton.BorderBrush = Avalonia.Media.Brushes.White;
+                }
+                else
+                {
+                    muteButton.ClearValue(Button.BackgroundProperty);
+                    muteButton.ClearValue(Button.ForegroundProperty);
+                }
+            }
+
             var slider = new Slider
             {
                 Orientation = Avalonia.Layout.Orientation.Vertical,
@@ -847,28 +1189,164 @@ public partial class MainWindow : Window
             {
                 isMuted = !isMuted;
                 setMuted(isMuted);
-                muteButton.Content = isMuted ? "Muted" : "Mute";
+                UpdateMuteButtonAppearance(isMuted);
             };
 
-            var control = new StackPanel
+            var channelRows = new Grid
             {
-                Spacing = 4,
-                Margin = new Avalonia.Thickness(4),
+                RowSpacing = 4,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
             };
-            control.Children.Add(muteButton);
-            control.Children.Add(slider);
-            control.Children.Add(volumeText);
-            control.Children.Add(new TextBlock
+            channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
+            channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(84) });
+            channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+            channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(164) });
+            if (timing is not null)
+            {
+                channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
+                channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
+                channelRows.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) });
+            }
+
+            var nameText = new TextBlock
             {
                 Text = name,
                 Width = 96,
                 TextWrapping = Avalonia.Media.TextWrapping.Wrap,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
                 TextAlignment = Avalonia.Media.TextAlignment.Center
+            };
+            var nameTooltip = new StackPanel { Spacing = 2 };
+            nameTooltip.Children.Add(new TextBlock
+            {
+                Text = name,
+                FontWeight = Avalonia.Media.FontWeight.Bold
             });
+            nameTooltip.Children.Add(new TextBlock
+            {
+                Text = fullName,
+                MaxWidth = 480,
+                TextWrapping = Avalonia.Media.TextWrapping.Wrap
+            });
+            ToolTip.SetTip(nameText, nameTooltip);
+            Grid.SetRow(nameText, 0);
+            channelRows.Children.Add(nameText);
+
+            var gainControl = new StackPanel
+            {
+                Spacing = 2,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            gainControl.Children.Add(gainEncoder);
+            gainControl.Children.Add(gainText);
+            Grid.SetRow(gainControl, 1);
+            channelRows.Children.Add(gainControl);
+
+            muteButton.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+            muteButton.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+            Grid.SetRow(muteButton, 2);
+            channelRows.Children.Add(muteButton);
+
+            var faderControl = new StackPanel
+            {
+                Spacing = 2,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            faderControl.Children.Add(slider);
+            faderControl.Children.Add(volumeText);
+            Grid.SetRow(faderControl, 3);
+            channelRows.Children.Add(faderControl);
+
+            if (timing is not null)
+            {
+                AddDurationEditor(channelRows, 4, timing.Delay, timing.SetDelay);
+                AddDurationEditor(channelRows, 5, timing.FadeIn, timing.SetFadeIn);
+                AddDurationEditor(channelRows, 6, timing.FadeOut, timing.SetFadeOut);
+            }
+
+            var control = new StackPanel
+            {
+                Spacing = 4,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+            };
+            control.Children.Add(channelRows);
             panel.Children.Add(control);
         }
+
+        private static string FormatGainDb(double gainDb) => $"{gainDb:+0.0;-0.0;0.0} dB";
+
+        private static bool TryParseGainDb(string? text, out double gainDb)
+        {
+            var value = text?.Trim() ?? string.Empty;
+            if (value.EndsWith("dB", StringComparison.OrdinalIgnoreCase))
+                value = value[..^2].Trim();
+
+            var parsed = double.TryParse(
+                             value,
+                             System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.InvariantCulture,
+                             out gainDb) ||
+                         double.TryParse(
+                             value,
+                             System.Globalization.NumberStyles.Float,
+                             System.Globalization.CultureInfo.CurrentCulture,
+                             out gainDb);
+            return parsed && double.IsFinite(gainDb) && gainDb is >= -50 and <= 50;
+        }
+
+        private void AddDurationEditor(
+            Grid channelRows,
+            int row,
+            TimeSpan? duration,
+            Action<TimeSpan?> setDuration)
+        {
+            var lastValidDuration = duration;
+            var editor = new TextBox
+            {
+                Text = FormatDuration(duration),
+                Width = 72,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                TextAlignment = Avalonia.Media.TextAlignment.Center
+            };
+
+            void Commit()
+            {
+                if (FadeDurationParser.TryParse(editor.Text, out var parsedDuration))
+                {
+                    setDuration(parsedDuration);
+                    lastValidDuration = parsedDuration;
+                    editor.Text = FormatDuration(parsedDuration);
+                }
+                else
+                {
+                    editor.Text = FormatDuration(lastValidDuration);
+                    ShowError(
+                        "Invalid input time",
+                        "Enter a non-negative duration as milliseconds (for example 250 ms), seconds (1.5 s), or mm:ss.fff.");
+                }
+            }
+
+            editor.LostFocus += (_, _) => Commit();
+            editor.KeyDown += (_, args) =>
+            {
+                if (args.Key != Avalonia.Input.Key.Enter)
+                    return;
+
+                Commit();
+                args.Handled = true;
+            };
+            Grid.SetRow(editor, row);
+            channelRows.Children.Add(editor);
+        }
+
+        private static string FormatDuration(TimeSpan? duration) =>
+            duration is { } value
+                ? $"{value.TotalMilliseconds.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)} ms"
+                : string.Empty;
 
         private void RefreshShow(bool selectActive = false)
         {
@@ -910,11 +1388,21 @@ public partial class MainWindow : Window
             await dialog.ShowDialog(this);
         }
 
-        private sealed class MediaFileItem
+        private sealed record InputTimingControls(
+            TimeSpan? Delay,
+            TimeSpan? FadeIn,
+            TimeSpan? FadeOut,
+            Action<TimeSpan?> SetDelay,
+            Action<TimeSpan?> SetFadeIn,
+            Action<TimeSpan?> SetFadeOut);
+
+        private sealed class MediaFileItem : INotifyPropertyChanged
         {
             private readonly MediaFile _file;
 
             public MediaFileItem(MediaFile file) => _file = file;
+
+            public event PropertyChangedEventHandler? PropertyChanged;
 
             public MediaFile File => _file;
             public string ShortName
@@ -928,9 +1416,10 @@ public partial class MainWindow : Window
                 get => _file.StartTime?.ToString(@"hh\:mm\:ss\.fff") ?? string.Empty;
                 set
                 {
-                    _file.StartTime = string.IsNullOrWhiteSpace(value)
-                        ? null
-                        : TimeSpan.TryParse(value, out var time) ? time : _file.StartTime;
+                    if (string.IsNullOrWhiteSpace(value))
+                        SetStartTime(null);
+                    else if (TimeSpan.TryParse(value, out var time))
+                        SetStartTime(time);
                 }
             }
             public string EndTime
@@ -938,10 +1427,23 @@ public partial class MainWindow : Window
                 get => _file.EndTime?.ToString(@"hh\:mm\:ss\.fff") ?? string.Empty;
                 set
                 {
-                    _file.EndTime = string.IsNullOrWhiteSpace(value)
-                        ? null
-                        : TimeSpan.TryParse(value, out var time) ? time : _file.EndTime;
+                    if (string.IsNullOrWhiteSpace(value))
+                        SetEndTime(null);
+                    else if (TimeSpan.TryParse(value, out var time))
+                        SetEndTime(time);
                 }
+            }
+
+            public void SetStartTime(TimeSpan? value)
+            {
+                _file.StartTime = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(StartTime)));
+            }
+
+            public void SetEndTime(TimeSpan? value)
+            {
+                _file.EndTime = value;
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EndTime)));
             }
 
             public override string ToString() => $"{ShortName} — {Path}";
@@ -977,7 +1479,7 @@ public partial class MainWindow : Window
             public override string ToString() => Label;
         }
 
-        private sealed class SceneItem : System.ComponentModel.INotifyPropertyChanged
+        private sealed class SceneItem
         {
             private readonly IReadOnlyList<Device> _devices;
             private readonly IReadOnlyList<MediaFile> _files;
@@ -990,7 +1492,6 @@ public partial class MainWindow : Window
             }
 
             public Scene Scene { get; }
-            public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
             public string ShortName
             {
                 get => Scene.ShortName;
@@ -1003,29 +1504,6 @@ public partial class MainWindow : Window
             public string Outputs => string.Join(", ", Scene.OutputIds
                 .Select(id => _devices.FirstOrDefault(device => device.Id == id)?.ShortName)
                 .Where(name => !string.IsNullOrEmpty(name)));
-            public string FadeIn
-            {
-                get => Scene.FadeIn is { } duration
-                    ? $"{duration.TotalMilliseconds.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)} ms"
-                    : string.Empty;
-                set => SetFadeDuration(value, isFadeIn: true);
-            }
-            public string FadeOut
-            {
-                get => Scene.FadeOut is { } duration
-                    ? $"{duration.TotalMilliseconds.ToString("0.###", System.Globalization.CultureInfo.CurrentCulture)} ms"
-                    : string.Empty;
-                set => SetFadeDuration(value, isFadeIn: false);
-            }
-            public string? LastInputError { get; private set; }
-
-            public string? ConsumeInputError()
-            {
-                var error = LastInputError;
-                LastInputError = null;
-                return error;
-            }
-
             public bool AutoStart
             {
                 get => Scene.AutoStart;
@@ -1033,25 +1511,6 @@ public partial class MainWindow : Window
             }
 
             public override string ToString() => ShortName;
-
-            private void SetFadeDuration(string? value, bool isFadeIn)
-            {
-                if (FadeDurationParser.TryParse(value, out var duration))
-                {
-                    if (isFadeIn)
-                        Scene.FadeIn = duration;
-                    else
-                        Scene.FadeOut = duration;
-                    LastInputError = null;
-                }
-                else
-                {
-                    LastInputError = "Enter a non-negative duration as milliseconds (for example 250 ms), seconds (1.5 s), or mm:ss.fff.";
-                }
-
-                var propertyName = isFadeIn ? nameof(FadeIn) : nameof(FadeOut);
-                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
-            }
         }
 
         private sealed class RoutingItem

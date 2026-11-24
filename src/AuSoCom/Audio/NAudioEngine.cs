@@ -16,7 +16,7 @@ public sealed class NAudioEngine : IAudioEngine
     private readonly List<IWavePlayer> _scenePlayers = [];
     private readonly List<CaptureSession> _sceneCaptures = [];
     private readonly List<IDisposable> _sceneResources = [];
-    private SceneFadeEnvelope? _sceneFade;
+    private Dictionary<Guid, SceneFadeEnvelope> _sceneFades = [];
     private long _sceneOperationId;
     private IWavePlayer? _player;
     private AudioFileReader? _reader;
@@ -29,6 +29,17 @@ public sealed class NAudioEngine : IAudioEngine
 
     public IReadOnlyList<string> GetAsioDrivers() =>
         OperatingSystem.IsWindows() ? AsioOut.GetDriverNames() : [];
+
+    public TimeSpan GetFileDuration(MediaFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentException.ThrowIfNullOrWhiteSpace(file.Path);
+        if (!File.Exists(file.Path))
+            throw new FileNotFoundException("The selected media file does not exist.", file.Path);
+
+        using var reader = new AudioFileReader(file.Path);
+        return reader.TotalTime;
+    }
 
     private static IReadOnlyList<AudioDeviceDescriptor> GetDevices(DataFlow flow, bool isInput)
     {
@@ -56,15 +67,85 @@ public sealed class NAudioEngine : IAudioEngine
 
         lock (_gate)
         {
-            _reader = new AudioFileReader(file.Path);
-            if (file.StartTime is { } start)
-                _reader.CurrentTime = start;
+            var reader = new AudioFileReader(file.Path);
+            IWavePlayer? player = null;
+            try
+            {
+                var start = file.StartTime ?? TimeSpan.Zero;
+                if (start < TimeSpan.Zero || start > reader.TotalTime)
+                    throw new InvalidOperationException("The file start time must be within the file duration.");
+                if (file.EndTime is { } end && end <= start)
+                    throw new InvalidOperationException("The file end time must be after its start time.");
+                reader.CurrentTime = start;
 
-            _player = TryCreateAsioPlayer(outputDeviceId)
-                ?? new WaveOutEvent();
-            _player.Init(_reader);
-            _player.Play();
+                player = TryCreateAsioPlayer(outputDeviceId) ?? new WaveOutEvent();
+                if (file.EndTime is { } endTime)
+                {
+                    player.Init(new SampleToWaveProvider(new EndTimeSampleProvider(reader, endTime)));
+                }
+                else
+                {
+                    player.Init(reader);
+                }
+
+                _reader = reader;
+                _player = player;
+                player.Play();
+            }
+            catch
+            {
+                _reader = null;
+                _player = null;
+                player?.Dispose();
+                reader.Dispose();
+                throw;
+            }
         }
+    }
+
+    public TimeSpan? GetFilePlaybackPosition()
+    {
+        lock (_gate)
+            return _reader?.CurrentTime;
+    }
+
+    public bool IsFilePlaybackPaused
+    {
+        get
+        {
+            lock (_gate)
+                return _player?.PlaybackState == PlaybackState.Paused;
+        }
+    }
+
+    public void PauseFilePlayback()
+    {
+        lock (_gate)
+            _player?.Pause();
+    }
+
+    public void ResumeFilePlayback()
+    {
+        lock (_gate)
+            _player?.Play();
+    }
+
+    public void SeekFilePlayback(TimeSpan position)
+    {
+        lock (_gate)
+        {
+            if (_reader is null) return;
+            var clampedPosition = position < TimeSpan.Zero
+                ? TimeSpan.Zero
+                : position > _reader.TotalTime ? _reader.TotalTime : position;
+            _reader.CurrentTime = clampedPosition;
+        }
+    }
+
+    public void StopFilePlayback()
+    {
+        lock (_gate)
+            StopFilePlaybackUnderLock();
     }
 
     public void StartScene(Scene scene, IReadOnlyList<MediaFile> files, IReadOnlyList<Device> devices)
@@ -79,9 +160,16 @@ public sealed class NAudioEngine : IAudioEngine
 
         try
         {
-            var fadeEnvelope = new SceneFadeEnvelope(scene.FadeIn);
+            var fadeEnvelopes = scene.InputIds
+                .Distinct()
+                .ToDictionary(
+                    inputId => inputId,
+                    inputId => new SceneFadeEnvelope(
+                        scene.GetInputDelay(inputId),
+                        scene.GetInputFadeIn(inputId),
+                        scene.GetInputFadeOut(inputId)));
             lock (_gate)
-                _sceneFade = fadeEnvelope;
+                _sceneFades = fadeEnvelopes;
 
             var sceneFiles = files.Where(file => scene.InputIds.Contains(file.Id)).ToArray();
             var sceneInputs = devices
@@ -113,6 +201,7 @@ public sealed class NAudioEngine : IAudioEngine
 
             foreach (var mediaFile in sceneFiles)
             {
+                var fadeEnvelope = fadeEnvelopes[mediaFile.Id];
                 foreach (var output in sceneOutputs)
                 {
                     ArgumentException.ThrowIfNullOrWhiteSpace(mediaFile.Path);
@@ -128,13 +217,15 @@ public sealed class NAudioEngine : IAudioEngine
                     reader.CurrentTime = start;
 
                     ISampleProvider source = new WdlResamplingSampleProvider(reader, SceneSampleRate);
+                    if (end is { } limit)
+                        source = new LimitedSampleProvider(source, (limit - start).TotalSeconds);
+                    if (fadeEnvelope.Delay > TimeSpan.Zero)
+                        source = new DelayedSampleProvider(source, fadeEnvelope, consumeSourceDuringDelay: false);
                     source = new RoutedSampleProvider(
                         source,
                         DeviceRole.InputStereo,
                         output.Role,
                         () => fadeEnvelope.Gain * GetRouteGain(scene, mediaFile.Id, output.Id));
-                    if (end is { } limit)
-                        source = new LimitedSampleProvider(source, (limit - start).TotalSeconds);
                     GetOutputMixer(output).AddMixerInput(source);
                 }
             }
@@ -142,6 +233,7 @@ public sealed class NAudioEngine : IAudioEngine
             var captureSessions = new Dictionary<string, CaptureSession>(StringComparer.Ordinal);
             foreach (var input in sceneInputs)
             {
+                var fadeEnvelope = fadeEnvelopes[input.Id];
                 foreach (var output in sceneOutputs)
                 {
                     var inputDeviceId = GetDeviceId(input);
@@ -163,6 +255,8 @@ public sealed class NAudioEngine : IAudioEngine
                     session.AddRouteBuffer(buffer);
                     ISampleProvider source = new WaveToSampleProvider(buffer);
                     source = new WdlResamplingSampleProvider(source, SceneSampleRate);
+                    if (fadeEnvelope.Delay > TimeSpan.Zero)
+                        source = new DelayedSampleProvider(source, fadeEnvelope, consumeSourceDuringDelay: true);
                     source = new RoutedSampleProvider(
                         source,
                         input.Role,
@@ -192,21 +286,26 @@ public sealed class NAudioEngine : IAudioEngine
         }
     }
 
-    public async Task StopAsync(TimeSpan? fadeOut)
+    public async Task StopAsync()
     {
-        SceneFadeEnvelope? fadeEnvelope;
+        Dictionary<Guid, SceneFadeEnvelope> fadeEnvelopes;
         long operationId;
-        TimeSpan duration;
+        var duration = TimeSpan.Zero;
         lock (_gate)
         {
-            fadeEnvelope = _sceneFade;
-            if (fadeEnvelope is null)
+            fadeEnvelopes = _sceneFades;
+            if (fadeEnvelopes.Count == 0)
             {
                 Stop();
                 return;
             }
 
-            duration = fadeEnvelope.BeginFadeOut(fadeOut);
+            foreach (var fadeEnvelope in fadeEnvelopes.Values)
+            {
+                var inputFadeOut = fadeEnvelope.BeginFadeOut();
+                if (inputFadeOut > duration)
+                    duration = inputFadeOut;
+            }
             operationId = ++_sceneOperationId;
         }
 
@@ -215,7 +314,7 @@ public sealed class NAudioEngine : IAudioEngine
 
         lock (_gate)
         {
-            if (_sceneOperationId == operationId && ReferenceEquals(_sceneFade, fadeEnvelope))
+            if (_sceneOperationId == operationId && ReferenceEquals(_sceneFades, fadeEnvelopes))
                 Stop();
         }
     }
@@ -236,15 +335,17 @@ public sealed class NAudioEngine : IAudioEngine
     private static string GetDeviceId(Device device) =>
         string.IsNullOrWhiteSpace(device.DeviceId) ? device.SystemName : device.DeviceId;
 
-    private static float GetRouteGain(Scene scene, Guid inputId, Guid outputId)
+    internal static float GetRouteGain(Scene scene, Guid inputId, Guid outputId)
     {
         if (scene.IsInputMuted(inputId) || scene.IsOutputMuted(outputId))
             return 0;
 
+        var gainDb = scene.GetInputGainDb(inputId) + scene.GetOutputGainDb(outputId);
         return (float)(
             scene.GetRouting(inputId, outputId) / 100 *
             scene.GetInputVolume(inputId) / 100 *
-            scene.GetOutputVolume(outputId) / 100);
+            scene.GetOutputVolume(outputId) / 100 *
+            Math.Pow(10, gainDb / 20));
     }
 
     private static MMDevice ResolveEndpoint(string deviceId, DataFlow flow)
@@ -275,7 +376,7 @@ public sealed class NAudioEngine : IAudioEngine
         lock (_gate)
         {
             _sceneOperationId++;
-            _sceneFade = null;
+            _sceneFades = [];
 
             foreach (var player in _scenePlayers)
             {
@@ -292,12 +393,17 @@ public sealed class NAudioEngine : IAudioEngine
                 resource.Dispose();
             _sceneResources.Clear();
 
-            _player?.Stop();
-            _player?.Dispose();
-            _player = null;
-            _reader?.Dispose();
-            _reader = null;
+            StopFilePlaybackUnderLock();
         }
+    }
+
+    private void StopFilePlaybackUnderLock()
+    {
+        _player?.Stop();
+        _player?.Dispose();
+        _player = null;
+        _reader?.Dispose();
+        _reader = null;
     }
 
     public void Dispose() => Stop();
@@ -406,6 +512,23 @@ public sealed class NAudioEngine : IAudioEngine
             var read = source.Read(buffer, offset, (int)Math.Min(count, _remainingSamples));
             _remainingSamples -= read;
             return read;
+        }
+    }
+
+    private sealed class EndTimeSampleProvider(AudioFileReader source, TimeSpan endTime) : ISampleProvider
+    {
+        public WaveFormat WaveFormat => source.WaveFormat;
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            var remaining = endTime - source.CurrentTime;
+            if (remaining <= TimeSpan.Zero) return 0;
+
+            var remainingFrames = (long)Math.Floor(remaining.TotalSeconds * source.WaveFormat.SampleRate);
+            var remainingSamples = remainingFrames * source.WaveFormat.Channels;
+            if (remainingSamples <= 0) return 0;
+
+            return source.Read(buffer, offset, (int)Math.Min(count, remainingSamples));
         }
     }
 }

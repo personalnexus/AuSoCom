@@ -15,10 +15,13 @@
                 <ResourceInclude Source="avares://AuSoCom/res/icons/add.axaml" />
                 <ResourceInclude Source="avares://AuSoCom/res/icons/remove.axaml" />
                 <ResourceInclude Source="avares://AuSoCom/res/icons/play.axaml" />
+                <ResourceInclude Source="avares://AuSoCom/res/icons/pause.axaml" />
+                <ResourceInclude Source="avares://AuSoCom/res/icons/stop.axaml" />
                 <ResourceInclude Source="avares://AuSoCom/res/icons/back.axaml" />
                 <ResourceInclude Source="avares://AuSoCom/res/icons/next.axaml" />
                 <ResourceInclude Source="avares://AuSoCom/res/icons/move-up.axaml" />
                 <ResourceInclude Source="avares://AuSoCom/res/icons/move-down.axaml" />
+                <ResourceInclude Source="avares://AuSoCom/res/icons/refresh.axaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

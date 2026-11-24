@@ -43,15 +43,17 @@ public sealed class SceneApplicationService
         {
             Id = Guid.NewGuid(),
             ShortName = $"{source.ShortName} copy",
-            FadeIn = source.FadeIn,
-            FadeOut = source.FadeOut,
-            Delay = source.Delay,
             AutoStart = source.AutoStart,
             InputIds = [.. source.InputIds],
             OutputIds = [.. source.OutputIds],
             Routing = new Dictionary<string, double>(source.Routing, StringComparer.Ordinal),
             InputVolumes = new Dictionary<string, double>(source.InputVolumes, StringComparer.Ordinal),
             OutputVolumes = new Dictionary<string, double>(source.OutputVolumes, StringComparer.Ordinal),
+            InputGainsDb = new Dictionary<string, double>(source.InputGainsDb, StringComparer.Ordinal),
+            OutputGainsDb = new Dictionary<string, double>(source.OutputGainsDb, StringComparer.Ordinal),
+            InputDelays = new Dictionary<string, TimeSpan?>(source.InputDelays, StringComparer.Ordinal),
+            InputFadeIns = new Dictionary<string, TimeSpan?>(source.InputFadeIns, StringComparer.Ordinal),
+            InputFadeOuts = new Dictionary<string, TimeSpan?>(source.InputFadeOuts, StringComparer.Ordinal),
             MutedInputIds = [.. source.MutedInputIds],
             MutedOutputIds = [.. source.MutedOutputIds]
         };
@@ -71,6 +73,11 @@ public sealed class SceneApplicationService
         scene.OutputIds.Remove(elementId);
         scene.InputVolumes.Remove(elementId.ToString("N"));
         scene.OutputVolumes.Remove(elementId.ToString("N"));
+        scene.InputGainsDb.Remove(elementId.ToString("N"));
+        scene.OutputGainsDb.Remove(elementId.ToString("N"));
+        scene.InputDelays.Remove(elementId.ToString("N"));
+        scene.InputFadeIns.Remove(elementId.ToString("N"));
+        scene.InputFadeOuts.Remove(elementId.ToString("N"));
         scene.MutedInputIds.Remove(elementId);
         scene.MutedOutputIds.Remove(elementId);
         var elementKey = elementId.ToString("N");

@@ -75,9 +75,10 @@ public sealed class Show
     public Guid? Next()
     {
         if (SceneIds.Count == 0) return null;
-        CurrentSceneIndex = CurrentSceneIndex is null || CurrentSceneIndex >= SceneIds.Count - 1
-            ? 0
-            : CurrentSceneIndex + 1;
+        if (CurrentSceneIndex is null)
+            CurrentSceneIndex = 0;
+        else if (CurrentSceneIndex < SceneIds.Count - 1)
+            CurrentSceneIndex++;
         return CurrentSceneId;
     }
 

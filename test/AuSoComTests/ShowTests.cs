@@ -24,7 +24,7 @@ public sealed class ShowTests
     }
 
     [TestMethod]
-    public void NextWrapsToTheFirstScene()
+    public void NextAtLastSceneStaysThere()
     {
         var show = new Show();
         var first = Guid.NewGuid();
@@ -34,7 +34,21 @@ public sealed class ShowTests
         show.Start();
 
         show.Next();
-        show.Next().Should().Be(first);
+        show.Next().Should().Be(second);
+        show.CurrentSceneIndex.Should().Be(1);
+    }
+
+    [TestMethod]
+    public void BackAtFirstSceneStaysThere()
+    {
+        var show = new Show();
+        var first = Guid.NewGuid();
+        var second = Guid.NewGuid();
+        show.Add(first);
+        show.Add(second);
+        show.Start();
+
+        show.Back().Should().Be(first);
         show.CurrentSceneIndex.Should().Be(0);
     }
 
@@ -52,7 +66,7 @@ public sealed class ShowTests
     }
 
     [TestMethod]
-    public void ActiveShowPositionDistinguishesRepeatedSceneEntries()
+    public void NextAtLastRepeatedSceneEntryKeepsItsPosition()
     {
         var show = new Show();
         var sceneId = Guid.NewGuid();
@@ -63,7 +77,7 @@ public sealed class ShowTests
         show.CurrentSceneIndex.Should().Be(1);
         show.Next();
 
-        show.CurrentSceneIndex.Should().Be(0);
+        show.CurrentSceneIndex.Should().Be(1);
     }
 
     [TestMethod]
