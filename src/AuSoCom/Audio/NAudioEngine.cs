@@ -20,6 +20,7 @@ public sealed class NAudioEngine : IAudioEngine
     private long _sceneOperationId;
     private IWavePlayer? _player;
     private AudioFileReader? _reader;
+    private MMDevice? _playbackEndpoint;
 
     public IReadOnlyList<AudioDeviceDescriptor> GetInputDevices() =>
         GetDevices(DataFlow.Capture, isInput: true);
@@ -69,6 +70,7 @@ public sealed class NAudioEngine : IAudioEngine
         {
             var reader = new AudioFileReader(file.Path);
             IWavePlayer? player = null;
+            MMDevice? endpoint = null;
             try
             {
                 var start = file.StartTime ?? TimeSpan.Zero;
@@ -78,7 +80,18 @@ public sealed class NAudioEngine : IAudioEngine
                     throw new InvalidOperationException("The file end time must be after its start time.");
                 reader.CurrentTime = start;
 
-                player = TryCreateAsioPlayer(outputDeviceId) ?? new WaveOutEvent();
+                if (OperatingSystem.IsWindows())
+                {
+                    endpoint = string.IsNullOrWhiteSpace(outputDeviceId)
+                        ? GetDefaultOutputEndpoint()
+                        : ResolveEndpoint(outputDeviceId, DataFlow.Render);
+                    player = new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 100);
+                }
+                else
+                {
+                    player = new WaveOutEvent();
+                }
+
                 if (file.EndTime is { } endTime)
                 {
                     player.Init(new SampleToWaveProvider(new EndTimeSampleProvider(reader, endTime)));
@@ -90,6 +103,7 @@ public sealed class NAudioEngine : IAudioEngine
 
                 _reader = reader;
                 _player = player;
+                _playbackEndpoint = endpoint;
                 player.Play();
             }
             catch
@@ -97,6 +111,7 @@ public sealed class NAudioEngine : IAudioEngine
                 _reader = null;
                 _player = null;
                 player?.Dispose();
+                endpoint?.Dispose();
                 reader.Dispose();
                 throw;
             }
@@ -361,14 +376,10 @@ public sealed class NAudioEngine : IAudioEngine
         return enumerator.GetDevice(deviceId);
     }
 
-    private static IWavePlayer? TryCreateAsioPlayer(string? outputDeviceId)
+    private static MMDevice GetDefaultOutputEndpoint()
     {
-        if (!OperatingSystem.IsWindows() || string.IsNullOrWhiteSpace(outputDeviceId)) return null;
-
-        var driverNames = AsioOut.GetDriverNames();
-        return driverNames.Contains(outputDeviceId, StringComparer.Ordinal)
-            ? new AsioOut(outputDeviceId)
-            : null;
+        using var enumerator = new MMDeviceEnumerator();
+        return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
     }
 
     public void Stop()
@@ -402,6 +413,8 @@ public sealed class NAudioEngine : IAudioEngine
         _player?.Stop();
         _player?.Dispose();
         _player = null;
+        _playbackEndpoint?.Dispose();
+        _playbackEndpoint = null;
         _reader?.Dispose();
         _reader = null;
     }

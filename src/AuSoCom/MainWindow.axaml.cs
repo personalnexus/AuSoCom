@@ -30,6 +30,7 @@ public partial class MainWindow : Window
         private TimeSpan _filePlayerPosition;
         private bool _isUpdatingFilePlayer;
         private bool _isFileProgressSeeking;
+        private string? _activePreviewOutputDeviceId;
         private string? _settingsPath;
         private Guid? _activeSceneId;
 
@@ -331,7 +332,9 @@ public partial class MainWindow : Window
 
             try
             {
-                if (_audio.IsFilePlaybackPaused)
+                var outputDeviceId = (FilePlayerOutputDevice.SelectedItem as PreviewOutputDeviceItem)?.DeviceId;
+                if (_audio.IsFilePlaybackPaused &&
+                    string.Equals(outputDeviceId, _activePreviewOutputDeviceId, StringComparison.Ordinal))
                 {
                     _audio.ResumeFilePlayback();
                     return;
@@ -349,7 +352,8 @@ public partial class MainWindow : Window
                     Path = file.Path,
                     StartTime = position,
                     EndTime = file.EndTime
-                });
+                }, outputDeviceId);
+                _activePreviewOutputDeviceId = outputDeviceId;
                 _filePlayerPosition = _audio.GetFilePlaybackPosition() ?? position;
                 UpdateFilePlayerDisplay();
             }
@@ -450,6 +454,7 @@ public partial class MainWindow : Window
 
         private void StopFilePreview()
         {
+            _activePreviewOutputDeviceId = null;
             try
             {
                 _audio.StopFilePlayback();
@@ -743,6 +748,7 @@ public partial class MainWindow : Window
 
         private void OutputsGridCellEditEnded(object? sender, DataGridCellEditEndedEventArgs e)
         {
+            RefreshPreviewOutputDevices();
             RefreshScenes();
         }
 
@@ -981,6 +987,33 @@ public partial class MainWindow : Window
                 .Where(device => device.Role is DeviceRole.OutputStereo or DeviceRole.OutputLeft or DeviceRole.OutputRight)
                 .Select(device => new DeviceItem(device))
                 .ToArray();
+            RefreshPreviewOutputDevices();
+        }
+
+        private void RefreshPreviewOutputDevices()
+        {
+            var selectedDeviceId = (FilePlayerOutputDevice.SelectedItem as PreviewOutputDeviceItem)?.DeviceId;
+            var favoriteDeviceIds = _settings.Devices
+                .Where(device =>
+                    device.Favorite &&
+                    device.Role is DeviceRole.OutputStereo or DeviceRole.OutputLeft or DeviceRole.OutputRight)
+                .Select(device => device.DeviceId)
+                .Where(deviceId => !string.IsNullOrWhiteSpace(deviceId))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var items = _audio.GetOutputDevices()
+                .Select(device => new PreviewOutputDeviceItem(
+                    device.Id,
+                    device.Name,
+                    favoriteDeviceIds.Contains(device.Id) ||
+                    (!string.IsNullOrWhiteSpace(device.LegacyId) && favoriteDeviceIds.Contains(device.LegacyId))))
+                .OrderByDescending(device => device.IsFavorite)
+                .ThenBy(device => device.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Prepend(new PreviewOutputDeviceItem(null, "(System Default)", false))
+                .ToArray();
+
+            FilePlayerOutputDevice.ItemsSource = items;
+            FilePlayerOutputDevice.SelectedItem =
+                items.FirstOrDefault(item => item.DeviceId == selectedDeviceId) ?? items[0];
         }
 
         private void RefreshScenes(Guid? selectedSceneId = null)
@@ -1480,6 +1513,11 @@ public partial class MainWindow : Window
         private sealed record PickerChoice(Guid Id, string Label, string SearchText, bool IsFavorite = false)
         {
             public override string ToString() => Label;
+        }
+
+        private sealed record PreviewOutputDeviceItem(string? DeviceId, string Name, bool IsFavorite)
+        {
+            public override string ToString() => Name;
         }
 
         private sealed class SceneItem
