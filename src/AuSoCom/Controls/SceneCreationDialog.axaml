@@ -4,7 +4,7 @@
         x:Class="AuSoCom.Controls.SceneCreationDialog"
         Title="Create Scene"
         Width="380"
-        Height="250"
+        Height="266"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="16" RowDefinitions="*,Auto">
@@ -12,11 +12,11 @@
             <TextBlock Text="Create scenes from the selected files" FontWeight="Bold" />
             <RadioButton Name="OneSceneRadioButton"
                          GroupName="SceneCreationMode"
-                         Content="One scene with all files"
-                         IsChecked="True" />
+                         Content="One scene with all files" />
             <RadioButton Name="EachFileRadioButton"
                          GroupName="SceneCreationMode"
-                         Content="Each file in its own scene" />
+                         Content="Each file in its own scene"
+                         IsChecked="True" />
             <CheckBox Name="AutoStartScenesCheckBox"
                       Content="Auto-start scenes"
                       IsChecked="True" />

@@ -14,47 +14,6 @@
         <Button Content="Save as..." Click="SaveAsClicked" />
     </StackPanel>
 
-    <Border Name="FilePlayerPanel" DockPanel.Dock="Bottom" IsVisible="False"
-            BorderBrush="#808080" BorderThickness="0,1,0,0" Padding="8">
-        <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6">
-                <Button Click="PlayFileClicked" ToolTip.Tip="Play" AutomationProperties.Name="Play">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <PathIcon Data="{StaticResource PlayIcon}" Foreground="#1565C0" Width="16" Height="16" />
-                        <TextBlock Text="Play" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button Click="PauseFileClicked" ToolTip.Tip="Pause" AutomationProperties.Name="Pause">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <PathIcon Data="{StaticResource PauseIcon}" Foreground="#EF6C00" Width="16" Height="16" />
-                        <TextBlock Text="Pause" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Button Click="StopFileClicked" ToolTip.Tip="Stop" AutomationProperties.Name="Stop">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <PathIcon Data="{StaticResource StopIcon}" Foreground="#C62828" Width="16" Height="16" />
-                        <TextBlock Text="Stop" VerticalAlignment="Center" />
-                    </StackPanel>
-                </Button>
-                <Border Width="1" Height="24" Background="#808080" Margin="4,0" VerticalAlignment="Center" />
-                <Button Content="Start Here" Click="SetFileStartHereClicked" />
-                <Button Content="End Here" Click="SetFileEndHereClicked" />
-            </StackPanel>
-            <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
-                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <TextBlock Name="FilePlayerCurrentTime" Text="00:00.000" FontFamily="Consolas" />
-                </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                    <TextBlock Name="FilePlayerTotalTime" Text="00:00.000" FontFamily="Consolas" />
-                </StackPanel>
-                <Slider Name="FilePlayerProgress" Grid.Column="2" Minimum="0" Maximum="1" Value="0"
-                        IsEnabled="False" ValueChanged="FilePlayerProgressChanged"
-                        PointerPressed="FilePlayerProgressPointerPressed"
-                        PointerReleased="FilePlayerProgressPointerReleased" />
-            </Grid>
-        </Grid>
-    </Border>
-
     <TabControl Name="MainTabs">
         <TabItem Header="Input Files">
             <DockPanel>
@@ -74,6 +33,46 @@
                     <Border Width="1" Height="24" Background="#808080" Margin="4,0" VerticalAlignment="Center" />
                     <Button Content="Create Scene from Selected Files..." Click="CreateSceneClicked" />
                 </StackPanel>
+                <Border Name="FilePlayerPanel" DockPanel.Dock="Bottom" IsVisible="False"
+                        BorderBrush="#808080" BorderThickness="0,1,0,0" Padding="8">
+                    <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="6">
+                            <Button Click="PlayFileClicked" ToolTip.Tip="Play" AutomationProperties.Name="Play">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="{StaticResource PlayIcon}" Foreground="#1565C0" Width="16" Height="16" />
+                                    <TextBlock Text="Play" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Click="PauseFileClicked" ToolTip.Tip="Pause" AutomationProperties.Name="Pause">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="{StaticResource PauseIcon}" Foreground="#EF6C00" Width="16" Height="16" />
+                                    <TextBlock Text="Pause" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Button Click="StopFileClicked" ToolTip.Tip="Stop" AutomationProperties.Name="Stop">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="{StaticResource StopIcon}" Foreground="#C62828" Width="16" Height="16" />
+                                    <TextBlock Text="Stop" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <Border Width="1" Height="24" Background="#808080" Margin="4,0" VerticalAlignment="Center" />
+                            <Button Content="Start Here" Click="SetFileStartHereClicked" />
+                            <Button Content="End Here" Click="SetFileEndHereClicked" />
+                        </StackPanel>
+                        <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+                            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Name="FilePlayerCurrentTime" Text="00:00.000" FontFamily="Consolas" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <TextBlock Name="FilePlayerTotalTime" Text="00:00.000" FontFamily="Consolas" />
+                            </StackPanel>
+                            <Slider Name="FilePlayerProgress" Grid.Column="2" Minimum="0" Maximum="1" Value="0"
+                                    IsEnabled="False" ValueChanged="FilePlayerProgressChanged"
+                                    PointerPressed="FilePlayerProgressPointerPressed"
+                                    PointerReleased="FilePlayerProgressPointerReleased" />
+                        </Grid>
+                    </Grid>
+                </Border>
                 <DataGrid Name="FilesGrid" Margin="8" AutoGenerateColumns="False" CanUserReorderColumns="True"
                           CanUserResizeColumns="True" SelectionMode="Extended"
                           SelectionChanged="FilesGridSelectionChanged" CellEditEnded="FilesGridCellEditEnded">

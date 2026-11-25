@@ -880,13 +880,16 @@ public partial class MainWindow : Window
             content.Children.Add(list);
             dialog.Content = content;
 
-            select.Click += (_, _) =>
+            void CompleteSelection()
             {
                 result.TrySetResult((list.SelectedItems?.OfType<PickerChoice>() ?? [])
                     .Select(choice => choice.Id)
                     .ToArray());
                 dialog.Close();
-            };
+            }
+
+            select.Click += (_, _) => CompleteSelection();
+            list.DoubleTapped += (_, _) => CompleteSelection();
             cancel.Click += (_, _) =>
             {
                 result.TrySetResult([]);
